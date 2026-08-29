@@ -11,7 +11,7 @@
   /* ================= 场景管理器 ================= */
   const SM = KB.SceneManager = {
     stack: [],
-    push(s) { this.stack.push(s); if (s.enter) s.enter(); if (s.buildUI) s.buildUI(); },
+    push(s) { this.stack.push(s); if (s.enter) s.enter(); if (s.buildUI) s.buildUI(); s._born = KB.Main.time; },
     pop() {
       const s = this.stack.pop();
       if (s && s.exit) s.exit();
@@ -22,7 +22,20 @@
     top() { return this.stack[this.stack.length - 1]; },
     update(dt) { const t = this.top(); if (t && t.update) t.update(dt); },
     draw(ctx) {
-      for (const s of this.stack) if (s && s.draw) s.draw(ctx);
+      for (const s of this.stack) {
+        if (!s || !s.draw) continue;
+        // 入场动效：淡入 + 轻微上滑（0.24s）
+        let a = 1, dy = 0;
+        if (s._born !== undefined) {
+          const k = M.clamp((KB.Main.time - s._born) / .24, 0, 1);
+          a = k; dy = (1 - k) * 14;
+        }
+        ctx.save();
+        ctx.globalAlpha = a;
+        if (dy) ctx.translate(0, dy);
+        s.draw(ctx);
+        ctx.restore();
+      }
     },
     onTouch(type, x, y) {
       for (let i = this.stack.length - 1; i >= 0; i--) {
@@ -38,24 +51,127 @@
   };
 
   /* ================= 通用：背景与顶栏 ================= */
-  function drawSkyBg(ctx, top, bottom) {
-    const g = ctx.createLinearGradient(0, 0, 0, H());
+  // 夜空装饰层（确定性生成，避免每帧闪烁）
+  const skyStars = [];
+  {
+    const rng = KB.RNG(20240601);
+    for (let i = 0; i < 64; i++) {
+      skyStars.push({ x: rng(), y: rng() * .62, r: .6 + rng() * 1.3, tw: rng() * Math.PI * 2, sp: .5 + rng() * 1.5 });
+    }
+  }
+  function drawSkyBg(ctx, top, bottom, o) {
+    o = o || {};
+    const w = W(), h = H();
+    const g = ctx.createLinearGradient(0, 0, 0, h);
     g.addColorStop(0, top || '#1a2444');
+    g.addColorStop(.72, shadeMix(top || '#1a2444', bottom || '#0d1022', .55));
     g.addColorStop(1, bottom || '#0d1022');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W(), H());
+    ctx.fillRect(0, 0, w, h);
+    // 星星（闪烁）
+    const t = KB.Main.time;
+    for (const s of skyStars) {
+      const a = .28 + .55 * Math.abs(Math.sin(s.tw + t * s.sp));
+      ctx.fillStyle = 'rgba(214,226,255,' + a.toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(s.x * w, s.y * h, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 月亮（右上，带光晕）
+    const mx = w * .84, my = h * .13, mr = Math.min(34, w * .03);
+    const halo = ctx.createRadialGradient(mx, my, mr * .4, mx, my, mr * 3.4);
+    halo.addColorStop(0, 'rgba(226,234,255,.24)');
+    halo.addColorStop(1, 'rgba(226,234,255,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(mx - mr * 3.4, my - mr * 3.4, mr * 6.8, mr * 6.8);
+    ctx.fillStyle = '#dfe7fb';
+    ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(160,175,210,.5)';
+    ctx.beginPath(); ctx.arc(mx - mr * .3, my - mr * .18, mr * .16, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + mr * .26, my + mr * .3, mr * .11, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + mr * .1, my - mr * .42, mr * .08, 0, Math.PI * 2); ctx.fill();
+    // 流云（两层视差）
+    if (o.clouds !== false) {
+      const drift = KB.Main.time;
+      ctx.fillStyle = 'rgba(190,205,255,.05)';
+      for (let i = 0; i < 3; i++) {
+        const cx = ((drift * (5 + i * 3) + i * 470) % (w + 380)) - 190;
+        const cy = h * (.12 + i * .09);
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 150 - i * 26, 17 - i * 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx + 90, cy + 7, 95 - i * 16, 12 - i * 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // 底部地平微光
+    const hz = ctx.createLinearGradient(0, h * .68, 0, h);
+    hz.addColorStop(0, 'rgba(70,100,220,0)');
+    hz.addColorStop(1, 'rgba(70,100,220,.10)');
+    ctx.fillStyle = hz;
+    ctx.fillRect(0, h * .68, w, h * .32);
+    // 暗角
+    const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * .42, w / 2, h / 2, Math.max(w, h) * .74);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,10,.38)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, w, h);
+  }
+  function shadeMix(c1, c2, t) {
+    const p = (c) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+    try {
+      const a = p(c1), b = p(c2);
+      return 'rgb(' + a.map((v, i) => Math.round(v * (1 - t) + b[i] * t)).join(',') + ')';
+    } catch (e) { return c1; }
+  }
+  // 远山剪影（确定性起伏）
+  function drawRidge(ctx, w, baseY, amp, seed) {
+    ctx.beginPath();
+    ctx.moveTo(0, baseY + amp);
+    for (let x = 0; x <= w; x += 40) {
+      const y = baseY - Math.abs(Math.sin(x * .004 + seed) * amp * .8 + Math.sin(x * .013 + seed * 3) * amp * .3);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, baseY + amp * 2);
+    ctx.lineTo(0, baseY + amp * 2);
+    ctx.closePath(); ctx.fill();
+  }
+  function drawDiamond(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+    ctx.closePath(); ctx.fill();
+  }
+  // 旗帜（随风摆动）dir: 1 右飘 / -1 左飘
+  function drawBanner(ctx, x, y, dir, time) {
+    ctx.save();
+    // 杆
+    ctx.strokeStyle = '#5d5548'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y + 60); ctx.lineTo(x, y - 66); ctx.stroke();
+    ctx.fillStyle = '#d9a92e';
+    ctx.beginPath(); ctx.arc(x, y - 70, 4, 0, Math.PI * 2); ctx.fill();
+    // 旗面（波动）
+    const wave = Math.sin(time * 2.2 + x * .01) * 6;
+    const g = ctx.createLinearGradient(x, 0, x + dir * 58, 0);
+    g.addColorStop(0, '#d23c3c'); g.addColorStop(1, '#8f1f1f');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 62);
+    ctx.quadraticCurveTo(x + dir * 30, y - 58 + wave, x + dir * 58, y - 50);
+    ctx.lineTo(x + dir * 58, y - 26);
+    ctx.quadraticCurveTo(x + dir * 30, y - 30 + wave, x, y - 34);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
 
   function makeTopBar(title, onBack, opts) {
     // 返回一个 widget 组合（手动绘制版本由场景处理）
     opts = opts || {};
     const safe = SAFE();
-    const bar = new ui.Panel({ bg: 'rgba(10,14,30,.85)', radius: 0, borderColor: null });
-    bar.h = 52; bar.w = W(); bar.x = 0; bar.y = safe.t;
-    const titleL = new ui.Label({ text: title, fontSize: 19, weight: 'bold' });
+    const bar = new ui.Panel({ bg: 'transparent', radius: 0, borderColor: null });
+    bar.h = 56; bar.w = W(); bar.x = 0; bar.y = safe.t;
+    const titleL = new ui.Label({ text: title, fontSize: 20, weight: 'bold' });
     bar.add(titleL);
     if (onBack) {
-      const back = new ui.Button({ label: '‹ 返回', bg: '#37474f', fontSize: 15, radius: 10 });
+      const back = new ui.Button({ label: '‹', bg: '#28345c', fontSize: 22, radius: 19, minW: 38 });
       back.onTap = onBack;
       bar.add(back);
       bar._back = back;
@@ -63,23 +179,48 @@
     // 货币显示
     bar._coins = true;
     bar.layout = () => {
-      bar.w = W(); bar.y = SAFE().t; bar.h = 52;
-      titleL.w = 200; titleL.h = 52;
-      titleL.x = W() / 2 - 100; titleL.y = bar.y;
+      bar.w = W(); bar.y = SAFE().t; bar.h = 56;
+      titleL.w = 300; titleL.h = 56;
+      titleL.x = W() / 2 - 150; titleL.y = bar.y;
       if (bar._back) {
-        bar._back.w = 76; bar._back.h = 40;
-        bar._back.x = SAFE().l + 8; bar._back.y = bar.y + 6;
+        bar._back.w = 38; bar._back.h = 38;
+        bar._back.x = SAFE().l + 14; bar._back.y = bar.y + 9;
       }
     };
     bar._draw = (ctx) => {
-      ctx.fillStyle = 'rgba(10,14,30,.85)';
-      ctx.fillRect(0, bar.y, W(), bar.h);
-      // 骑士币
       const s = SAFE();
-      ui.drawCoin(ctx, W() - s.r - 60, bar.y + 26, 13, '#ffd54f', '币');
+      // 玻璃顶栏
+      const g = ctx.createLinearGradient(0, bar.y, 0, bar.y + bar.h);
+      g.addColorStop(0, 'rgba(15,21,44,.88)');
+      g.addColorStop(1, 'rgba(9,13,30,.66)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, bar.y, W(), bar.h);
+      // 底部金线 + 分隔光
+      const gold = ctx.createLinearGradient(0, 0, W(), 0);
+      gold.addColorStop(0, 'rgba(255,213,79,0)');
+      gold.addColorStop(.5, 'rgba(255,213,79,.55)');
+      gold.addColorStop(1, 'rgba(255,213,79,0)');
+      ctx.fillStyle = gold;
+      ctx.fillRect(0, bar.y + bar.h - 1.5, W(), 1.5);
+      // 标题（柔影）+ 小饰线
+      ctx.font = ui.font(20, 'bold');
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const tx = W() / 2, ty = bar.y + bar.h / 2;
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillText(title, tx, ty + 1.5);
+      ctx.fillStyle = '#f4f7ff';
+      ctx.fillText(title, tx, ty);
+      // 货币胶囊
+      const coins = M.fmtNum(KB.Player.coins());
       ctx.font = ui.font(15, 'bold');
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(M.fmtNum(KB.Player.coins()), W() - s.r - 42, bar.y + 26);
+      const cw = ctx.measureText(coins).width + 52;
+      const cx = W() - s.r - 14 - cw;
+      const cy = bar.y + 11, chh = 32;
+      ui.glass(ctx, cx, cy, cw, chh, 16, { top: 'rgba(38,49,94,.8)', bottom: 'rgba(13,18,38,.85)' });
+      ui.drawCoin(ctx, cx + 19, cy + chh / 2, 11, '#ffd54f', '');
+      ctx.font = ui.font(15, 'bold');
+      ctx.fillStyle = '#ffe9a8'; ctx.textAlign = 'left';
+      ctx.fillText(coins, cx + 36, cy + chh / 2);
     };
     return bar;
   }
@@ -117,60 +258,70 @@
     const root = new ui.Widget();
     let pressT = 0, pressTimer = null;
     const self = this;
+    // 萤火虫（确定性分布）
+    const fireflies = [];
+    {
+      const rng = KB.RNG(99001);
+      for (let i = 0; i < 16; i++) {
+        fireflies.push({
+          x: (rng() - .5) * 640, y: 470 + rng() * 130,
+          ph: rng() * Math.PI * 2, sp: .4 + rng() * .8, r: 1.4 + rng() * 1.4,
+        });
+      }
+    }
 
     function build() {
       root.removeAll();
       const w = W(), h = H(), s = SAFE();
-      // 顶栏货币
+      // 顶栏：左币右星 状态胶囊
       root.add((function () {
-        const p = new ui.Panel({ bg: 'rgba(10,14,30,.8)', radius: 0, borderColor: null });
-        p.w = w; p.h = 50; p.x = 0; p.y = s.t;
+        const p = new ui.Panel({ bg: 'transparent', radius: 0, borderColor: null });
+        p.w = w; p.h = 40; p.x = 0; p.y = s.t + 8;
         p._draw = (ctx) => {
-          ctx.fillStyle = 'rgba(10,14,30,.8)';
-          ctx.fillRect(0, SAFE().t, W(), 50);
           const st = KB.Player.state;
-          const y = SAFE().t + 25;
+          const y = SAFE().t + 28;
           ctx.textBaseline = 'middle';
-          // 骑士币
-          ui.drawCoin(ctx, SAFE().l + 70, y, 14, '#ffd54f', '骑');
-          ctx.font = ui.font(15, 'bold'); ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
-          ctx.fillText(M.fmtNum(st.player.coins), SAFE().l + 90, y);
-          // 星尘(未开放)
-          ui.drawCoin(ctx, W() / 2 - 60, y, 12, '#7e8aa8', '尘');
-          ctx.font = ui.font(13); ctx.fillStyle = 'rgba(255,255,255,.4)';
-          ctx.fillText('星尘 未开放', W() / 2 - 42, y);
-          // 荣耀(未开放)
-          ui.drawCoin(ctx, W() / 2 + 110, y, 12, '#7e8aa8', '耀');
-          ctx.fillText('荣耀点 未开放', W() / 2 + 128, y);
-          // 总星数
-          ctx.textAlign = 'right';
-          ctx.font = ui.font(15, 'bold'); ctx.fillStyle = '#ffd54f';
-          ctx.fillText('★ ' + KB.Player.totalStars() + ' / ' + KB.WORLDS.reduce((a, x) => a + x.levels * 10, 0), W() - SAFE().r - 14, y);
+          // 骑士币胶囊（左）
+          ctx.font = ui.font(15, 'bold');
+          const coins = M.fmtNum(st.player.coins);
+          const cw = ctx.measureText(coins).width + 56;
+          ui.glass(ctx, SAFE().l + 14, y - 17, cw, 34, 17, { top: 'rgba(38,49,94,.78)', bottom: 'rgba(13,18,38,.84)' });
+          ui.drawCoin(ctx, SAFE().l + 33, y, 12, '#ffd54f', '骑');
+          ctx.fillStyle = '#ffe9a8'; ctx.textAlign = 'left';
+          ctx.fillText(coins, SAFE().l + 52, y);
+          // 总星数胶囊（右）
+          const total = KB.Player.totalStars() + ' / ' + KB.WORLDS.reduce((a, x) => a + x.levels * 10, 0);
+          ctx.font = ui.font(15, 'bold');
+          const sw = ctx.measureText('★ ' + total).width + 40;
+          const sx = W() - SAFE().r - 14 - sw;
+          ui.glass(ctx, sx, y - 17, sw, 34, 17, { top: 'rgba(38,49,94,.78)', bottom: 'rgba(13,18,38,.84)' });
+          ctx.fillStyle = '#ffd54f'; ctx.textAlign = 'left';
+          ctx.fillText('★ ' + total, sx + 20, y);
         };
         return p;
       })());
 
-      // 主功能按钮 2×3
-      const bw = Math.min(240, (w - s.l - s.r - 72) / 3), bh = Math.min(96, h * 0.16);
-      const gx = w / 2 - (bw * 3 + 24) / 2;
-      const gy = h * 0.42 - bh - 12;
+      // 主功能卡片 2×3（固定逻辑舞台，坐标即设计稿）
+      const bw = 214, bh = 94, gapX = 22, gapY = 20;
+      const gx = w / 2 - (bw * 3 + gapX * 2) / 2;
+      const gy = 556;
       const items = [
-        { icon: '🗺️', label: '世界征途', sub: '推图闯关', bg: '#2e7d32', act: () => SM.push(new Boot.WorldMapScene()) },
-        { icon: '⚔️', label: '骑士防线', sub: '快速开战', bg: '#c62828', act: quickBattle },
-        { icon: '🏛️', label: '骑士圣殿', sub: '查看升级', bg: '#4527a0', act: () => SM.push(new Boot.TempleScene()) },
-        { icon: '🔮', label: '融合祭坛', sub: '白→紫→金', bg: '#6a1b9a', act: () => SM.push(new Boot.FusionScene()) },
-        { icon: '🏪', label: '商店', sub: '招募骑士', bg: '#ef6c00', act: () => SM.push(new Boot.ShopScene()) },
-        { icon: '🏰', label: '基地升级', sub: 'Lv.' + KB.Player.baseLevel(), bg: '#00838f', act: () => SM.push(new Boot.BaseUpScene()) },
+        { icon: '🗺️', label: '世界征途', sub: '推图闯关', bg: '#1d6e42', act: () => SM.push(new Boot.WorldMapScene()) },
+        { icon: '⚔️', label: '骑士防线', sub: '快速开战', bg: '#a03038', act: quickBattle },
+        { icon: '🏛️', label: '骑士圣殿', sub: '查看升级', bg: '#4b3d9e', act: () => SM.push(new Boot.TempleScene()) },
+        { icon: '🔮', label: '融合祭坛', sub: '白→紫→金', bg: '#7a2f9e', act: () => SM.push(new Boot.FusionScene()) },
+        { icon: '🏪', label: '商店', sub: '招募骑士', bg: '#b8641c', act: () => SM.push(new Boot.ShopScene()) },
+        { icon: '🏰', label: '基地升级', sub: 'Lv.' + KB.Player.baseLevel(), bg: '#0e6e85', act: () => SM.push(new Boot.BaseUpScene()) },
       ];
       self._rects = {};
       items.forEach((it, i) => {
         const r = Math.floor(i / 3), c = i % 3;
         const btn = new ui.Button({
           icon: it.icon, label: it.label, sub: it.sub, bg: it.bg,
-          fontSize: 17, iconSize: 26, radius: 16,
+          fontSize: 18, iconSize: 26, radius: 18,
         });
         btn.onTap = it.act;
-        btn.x = gx + c * (bw + 12); btn.y = gy + r * (bh + 12);
+        btn.x = gx + c * (bw + gapX); btn.y = gy + r * (bh + gapY);
         btn.w = bw; btn.h = bh;
         root.add(btn);
         self._rects[it.label] = btn;
@@ -205,20 +356,105 @@
       buildUI: build,
       update() {},
       draw(ctx) {
-        drawSkyBg(ctx, '#22335e', '#101528');
         const w = W(), h = H(), s = SAFE();
-        // 地面
-        ctx.fillStyle = '#1c3a24';
-        ctx.fillRect(0, h * 0.62, w, h);
-        // 基地核心城堡（居中）
-        KB.art.drawCore(ctx, w / 2, h * 0.47, 150, 210, 1, KB.Main.time);
-        // 标题
-        ctx.font = ui.font(30, 'bold');
+        const time = KB.Main.time;
+        drawSkyBg(ctx, '#1d2c58', '#0a1124');
+
+        /* ---- 远山两层剪影 ---- */
+        ctx.fillStyle = '#141f3e';
+        drawRidge(ctx, w, 508, 120, 0.9);
+        ctx.fillStyle = '#0f1730';
+        drawRidge(ctx, w, 538, 90, 1.6);
+
+        /* ---- 标题徽章区 ---- */
+        const tcx = w / 2;
+        // 徽章光晕
+        const glow = ctx.createRadialGradient(tcx, 108, 8, tcx, 108, 90);
+        glow.addColorStop(0, 'rgba(255,213,79,.16)');
+        glow.addColorStop(1, 'rgba(255,213,79,0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(tcx - 90, 18, 180, 180);
+        // 盾形徽章
+        ctx.save();
+        ctx.translate(tcx, 106);
+        const shield = new Path2D();
+        shield.moveTo(0, -30); shield.quadraticCurveTo(26, -30, 26, -12);
+        shield.quadraticCurveTo(26, 12, 0, 32);
+        shield.quadraticCurveTo(-26, 12, -26, -12);
+        shield.quadraticCurveTo(-26, -30, 0, -30);
+        const sg = ctx.createLinearGradient(0, -30, 0, 32);
+        sg.addColorStop(0, '#3b4a86'); sg.addColorStop(1, '#1c2650');
+        ctx.fillStyle = sg; ctx.fill(shield);
+        ctx.strokeStyle = '#ffd54f'; ctx.lineWidth = 2.5; ctx.stroke(shield);
+        ctx.strokeStyle = 'rgba(255,213,79,.35)'; ctx.lineWidth = 6; ctx.stroke(shield);
+        ctx.fillStyle = '#ffe9a8';
+        ctx.font = ui.font(26, 'bold');
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 6;
-        ctx.strokeText('骑士基地 · 世界起源', w / 2, s.t + 88);
+        ctx.fillText('⚔', 0, 1);
+        ctx.restore();
+        // 主标题（金色渐变 + 柔影）
+        ctx.font = ui.font(34, 'bold');
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(0,0,0,.55)';
+        ctx.fillText('骑士基地 · 世界起源', tcx, 174 + 2);
+        const tg = ctx.createLinearGradient(0, 158, 0, 190);
+        tg.addColorStop(0, '#ffe9a8'); tg.addColorStop(.55, '#ffd54f'); tg.addColorStop(1, '#d9a92e');
+        ctx.fillStyle = tg;
+        ctx.fillText('骑士基地 · 世界起源', tcx, 174);
+        // 饰线 ◆—◆
+        ctx.strokeStyle = 'rgba(255,213,79,.5)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tcx - 150, 204); ctx.lineTo(tcx - 16, 204); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tcx + 16, 204); ctx.lineTo(tcx + 150, 204); ctx.stroke();
         ctx.fillStyle = '#ffd54f';
-        ctx.fillText('骑士基地 · 世界起源', w / 2, s.t + 88);
+        drawDiamond(ctx, tcx, 204, 4.5);
+
+        /* ---- 地面（承托层） ---- */
+        const gg = ctx.createLinearGradient(0, 620, 0, h);
+        gg.addColorStop(0, '#0c1d12');
+        gg.addColorStop(1, '#07130c');
+        ctx.fillStyle = gg;
+        ctx.fillRect(0, 620, w, h - 620);
+
+        /* ---- 中央城堡与山丘 ---- */
+        const hillY = 566;
+        // 城堡背光
+        const cg = ctx.createRadialGradient(w / 2, 452, 20, w / 2, 452, 240);
+        cg.addColorStop(0, 'rgba(120,150,255,.14)');
+        cg.addColorStop(1, 'rgba(120,150,255,0)');
+        ctx.fillStyle = cg;
+        ctx.fillRect(w / 2 - 240, 212, 480, 480);
+        // 山丘
+        const hg = ctx.createLinearGradient(0, hillY - 60, 0, hillY + 130);
+        hg.addColorStop(0, '#1a3524'); hg.addColorStop(1, '#0a1a10');
+        ctx.fillStyle = hg;
+        ctx.beginPath();
+        ctx.moveTo(w / 2 - 430, hillY + 120);
+        ctx.quadraticCurveTo(w / 2 - 300, hillY - 66, w / 2, hillY - 60);
+        ctx.quadraticCurveTo(w / 2 + 300, hillY - 66, w / 2 + 430, hillY + 120);
+        ctx.closePath(); ctx.fill();
+        // 石径
+        ctx.strokeStyle = 'rgba(196,181,148,.22)'; ctx.lineWidth = 26; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(w / 2, 588);
+        ctx.quadraticCurveTo(w / 2 + 26, 664, w / 2 + 10, 760);
+        ctx.stroke();
+        // 城堡（主界面不显示血条）
+        KB.art.drawCore(ctx, w / 2, 452, 190, 250, 1, time, false);
+        // 两翼旗帜
+        drawBanner(ctx, w / 2 - 205, hillY - 48, 1, time);
+        drawBanner(ctx, w / 2 + 205, hillY - 40, -1, time);
+        // 萤火虫
+        ctx.save();
+        for (let i = 0; i < fireflies.length; i++) {
+          const f = fireflies[i];
+          const fx = w / 2 + f.x + Math.sin(time * f.sp + f.ph) * 26;
+          const fy = f.y + Math.cos(time * f.sp * .8 + f.ph) * 18;
+          const fa = .25 + .55 * Math.abs(Math.sin(time * 1.6 + f.ph * 2));
+          ctx.fillStyle = 'rgba(255,224,130,' + fa.toFixed(3) + ')';
+          ctx.beginPath(); ctx.arc(fx, fy, f.r, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+
         root.draw(ctx);
       },
       onTouch(type, x, y) {

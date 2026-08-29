@@ -12,6 +12,41 @@
   ui.font = (px, weight) => (weight ? weight + ' ' : '') + px + 'px ' + FONT;
   ui.FONT = FONT;
 
+  /* ---------------- 设计令牌与通用质感 ---------------- */
+  const T = ui.T = {
+    gold: '#ffd54f', goldDeep: '#c9982a',
+    text: '#eef2ff', sub: 'rgba(210,222,255,.6)',
+    edge: 'rgba(150,172,255,.22)', edgeSoft: 'rgba(150,172,255,.12)',
+  };
+  // 颜色加深/提亮：t>0 提亮，t<0 加深
+  function shade(hex, t) {
+    if (typeof hex !== 'string' || hex[0] !== '#') return hex;
+    const a = parseInt(hex.slice(1), 16);
+    const to = t > 0 ? 255 : 0, k = Math.min(1, Math.abs(t));
+    const r = Math.round(((a >> 16) & 255) * (1 - k) + to * k);
+    const g = Math.round(((a >> 8) & 255) * (1 - k) + to * k);
+    const b = Math.round((a & 255) * (1 - k) + to * k);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+  ui.shade = shade;
+  // 玻璃拟态面板：渐变底 + 暗外线 + 亮内线 + 顶部高光
+  ui.glass = function (ctx, x, y, w, h, r, o) {
+    o = o || {};
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, o.top || 'rgba(30,40,78,.92)');
+    g.addColorStop(1, o.bottom || 'rgba(12,17,38,.94)');
+    ctx.fillStyle = o.fill || g;
+    M.roundRect(ctx, x, y, w, h, r); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1;
+    M.roundRect(ctx, x - .5, y - .5, w + 1, h + 1, r); ctx.stroke();
+    ctx.strokeStyle = o.edge || T.edge; ctx.lineWidth = 1;
+    M.roundRect(ctx, x + .5, y + .5, w - 1, h - 1, Math.max(0, r - 1)); ctx.stroke();
+    if (h > 10) {
+      ctx.fillStyle = 'rgba(255,255,255,.05)';
+      M.roundRect(ctx, x + 2, y + 2, w - 4, Math.min(h * .35, 12), Math.max(0, r - 2)); ctx.fill();
+    }
+  };
+
   /* ---------------- Widget 基类 ---------------- */
   class Widget {
     constructor() {
@@ -83,40 +118,90 @@
       return true;
     }
     _draw(ctx) {
-      const bg = this.enabled ? (this.pressed ? this.bgPress : this.bg) : '#3a4152';
-      ctx.fillStyle = bg;
-      M.roundRect(ctx, this.x, this.y, this.w, this.h, this.radius);
-      ctx.fill();
+      const r = this.radius;
+      const x = this.x, y = this.y, w = this.w, h = this.h;
+      const base = this.enabled ? (this.pressed ? shade(this.bg, -.22) : this.bg) : '#3a4152';
+      ctx.save();
+      // 投影
+      if (this.enabled) {
+        ctx.fillStyle = 'rgba(3,6,16,.5)';
+        M.roundRect(ctx, x + 1.5, y + 3.5, w, h, r); ctx.fill();
+      }
+      // 主体渐变
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, shade(base, .24));
+      g.addColorStop(.5, base);
+      g.addColorStop(1, shade(base, -.16));
+      ctx.fillStyle = g;
+      M.roundRect(ctx, x, y, w, h, r); ctx.fill();
+      // 顶部光泽
+      if (h > 12) {
+        ctx.fillStyle = 'rgba(255,255,255,.12)';
+        M.roundRect(ctx, x + 2, y + 2, w - 4, Math.max(4, h * .42), Math.max(0, r - 2)); ctx.fill();
+      }
+      // 边框
+      ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1;
+      M.roundRect(ctx, x + .5, y + .5, w - 1, h - 1, Math.max(0, r - 1)); ctx.stroke();
       if (this.borderColor) {
         ctx.strokeStyle = this.borderColor; ctx.lineWidth = 2;
-        M.roundRect(ctx, this.x + 1, this.y + 1, this.w - 2, this.h - 2, this.radius);
-        ctx.stroke();
+        M.roundRect(ctx, x + 1.5, y + 1.5, w - 3, h - 3, Math.max(0, r - 1.5)); ctx.stroke();
       }
-      const cx = this.x + this.w / 2;
-      let cy = this.y + this.h / 2;
+      if (!this.enabled) {
+        ctx.fillStyle = 'rgba(22,28,50,.5)';
+        M.roundRect(ctx, x, y, w, h, r); ctx.fill();
+      }
+      // 文案（带柔影，按下下沉）
+      const dy = (this.pressed && this.enabled) ? 1.5 : 0;
+      const cx = x + w / 2;
+      let cy = y + h / 2 + dy;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.globalAlpha = this.enabled ? 1 : .6;
+      const label = (txt, font, color, lx, ly) => {
+        ctx.font = font;
+        ctx.fillStyle = 'rgba(0,0,0,.38)';
+        ctx.fillText(txt, lx, ly + 1.5);
+        ctx.fillStyle = color;
+        ctx.fillText(txt, lx, ly);
+      };
       if (this.icon && this.label) {
-        const total = this.iconSize + 6 + ctx.measureText(this.label).width;
-        let ix = cx - total / 2 + this.iconSize / 2;
-        ctx.font = this.iconSize + 'px ' + FONT;
-        ctx.fillStyle = this.fg;
-        ctx.fillText(this.icon, ix, cy);
         ctx.font = ui.font(this.fontSize, 'bold');
-        ctx.fillText(this.label, ix + this.iconSize / 2 + 6, cy);
+        const lw = ctx.measureText(this.label).width;
+        const iw = this.iconSize * 1.05;
+        const total = iw + 10 + lw;
+        const ix = cx - total / 2 + iw / 2;
+        if (h >= 44) {  // 图标底托
+          ctx.fillStyle = 'rgba(255,255,255,.16)';
+          ctx.beginPath(); ctx.arc(ix, cy, this.iconSize * .74, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(ix, cy, this.iconSize * .74, 0, Math.PI * 2); ctx.stroke();
+        }
+        label(this.icon, this.iconSize + 'px ' + FONT, this.fg, ix, cy + 1);
+        const lx = ix + iw / 2 + 10;
+        if (this.sub && h >= 60) {  // 双行：标题 + 副标题
+          label(this.label, ui.font(this.fontSize, 'bold'), this.fg, lx, cy - 10);
+          ctx.font = ui.font(this.fontSize - 5);
+          ctx.fillStyle = 'rgba(255,255,255,.72)';
+          ctx.fillText(this.sub, lx, cy + 14);
+        } else {
+          label(this.label, ui.font(this.fontSize, 'bold'), this.fg, lx, cy);
+        }
       } else if (this.icon) {
-        ctx.font = this.iconSize + 'px ' + FONT;
-        ctx.fillText(this.icon, cx, cy);
+        if (h >= 44) {
+          ctx.fillStyle = 'rgba(255,255,255,.16)';
+          ctx.beginPath(); ctx.arc(cx, cy, this.iconSize * .74, 0, Math.PI * 2); ctx.fill();
+        }
+        label(this.icon, this.iconSize + 'px ' + FONT, this.fg, cx, cy + 1);
       } else if (this.label) {
         if (this.sub) cy -= 9;
-        ctx.font = ui.font(this.fontSize, 'bold');
-        ctx.fillStyle = this.fg;
-        ctx.fillText(this.label, cx, cy);
+        label(this.label, ui.font(this.fontSize, 'bold'), this.fg, cx, cy);
         if (this.sub) {
           ctx.font = ui.font(this.fontSize - 5);
-          ctx.fillStyle = 'rgba(255,255,255,.75)';
-          ctx.fillText(this.sub, cx, cy + 16);
+          ctx.fillStyle = 'rgba(255,255,255,.72)';
+          ctx.fillText(this.sub, cx, cy + 17);
         }
       }
+      ctx.globalAlpha = 1;
+      ctx.restore();
     }
   }
   ui.Button = Button;
@@ -130,13 +215,26 @@
       this.radius = o.radius !== undefined ? o.radius : 16;
       this.borderColor = o.borderColor || 'rgba(255,255,255,.14)';
       this._draw = (ctx) => {
-        ctx.fillStyle = this.bg;
-        M.roundRect(ctx, this.x, this.y, this.w, this.h, this.radius);
-        ctx.fill();
+        const x = this.x, y = this.y, w = this.w, h = this.h, r = this.radius;
+        const g = ctx.createLinearGradient(0, y, 0, y + h);
+        g.addColorStop(0, 'rgba(255,255,255,.05)');
+        g.addColorStop(1, 'rgba(0,0,0,.14)');
+        ctx.fillStyle = this.bg;   // 透出底色的基调
+        M.roundRect(ctx, x, y, w, h, r); ctx.fill();
+        ctx.fillStyle = g;         // 上下光影
+        M.roundRect(ctx, x, y, w, h, r); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.38)'; ctx.lineWidth = 1;
+        M.roundRect(ctx, x - .5, y - .5, w + 1, h + 1, r); ctx.stroke();
         if (this.borderColor) {
           ctx.strokeStyle = this.borderColor; ctx.lineWidth = 1.5;
-          M.roundRect(ctx, this.x + .75, this.y + .75, this.w - 1.5, this.h - 1.5, this.radius);
-          ctx.stroke();
+          M.roundRect(ctx, x + .75, y + .75, w - 1.5, h - 1.5, r); ctx.stroke();
+        } else if (r > 4) {
+          ctx.strokeStyle = T.edgeSoft; ctx.lineWidth = 1;
+          M.roundRect(ctx, x + .5, y + .5, w - 1, h - 1, Math.max(0, r - 1)); ctx.stroke();
+        }
+        if (h > 10) {  // 顶部内高光
+          ctx.fillStyle = 'rgba(255,255,255,.05)';
+          M.roundRect(ctx, x + 2, y + 2, w - 4, Math.min(h * .35, 12), Math.max(0, r - 2)); ctx.fill();
         }
       };
     }
@@ -172,14 +270,27 @@
       this.bg = o.bg || 'rgba(0,0,0,.45)';
       this.fg = o.fg || '#4caf50';
       this._draw = (ctx) => {
-        ctx.fillStyle = this.bg;
-        M.roundRect(ctx, this.x, this.y, this.w, this.h, this.h / 2);
-        ctx.fill();
-        const w = Math.max(0, Math.min(1, this.pct)) * this.w;
-        if (w > 0) {
-          ctx.fillStyle = this.fg;
-          M.roundRect(ctx, this.x, this.y, Math.max(w, this.h), this.h, this.h / 2);
-          ctx.fill();
+        const x = this.x, y = this.y, w = this.w, h = this.h;
+        // 轨道
+        M.roundRect(ctx, x, y, w, h, h / 2);
+        ctx.fillStyle = this.bg; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
+        M.roundRect(ctx, x + .5, y + .5, w - 1, h - 1, h / 2 - .5); ctx.stroke();
+        const p = M.clamp(this.pct, 0, 1), fw = p * w;
+        if (fw > 2) {
+          ctx.save();
+          ctx.beginPath();
+          M.roundRect(ctx, x, y, w, h, h / 2);
+          ctx.clip();
+          const g = ctx.createLinearGradient(0, y, 0, y + h);
+          g.addColorStop(0, shade(this.fg, .35));
+          g.addColorStop(.45, this.fg);
+          g.addColorStop(1, shade(this.fg, -.2));
+          ctx.fillStyle = g;
+          ctx.fillRect(x, y, fw, h);
+          ctx.fillStyle = 'rgba(255,255,255,.25)';
+          ctx.fillRect(x, y, fw, Math.max(1.5, h * .32));  // 顶光泽
+          ctx.restore();
         }
       };
     }
@@ -251,7 +362,7 @@
     }
   };
   function drawStar(ctx, cx, cy, r, color) {
-    ctx.fillStyle = color;
+    ctx.save();
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
       const ang = -Math.PI / 2 + i * Math.PI / 5;
@@ -259,20 +370,43 @@
       const px = cx + Math.cos(ang) * rr, py = cy + Math.sin(ang) * rr;
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
-    ctx.closePath(); ctx.fill();
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,.35)';   // 柔影
+    ctx.save(); ctx.translate(0, 1); ctx.fill(); ctx.restore();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
   }
   ui.drawStar = drawStar;
 
   ui.drawCoin = function (ctx, x, y, r, color, glyph) {
-    ctx.fillStyle = color || '#ffd54f';
+    const c = color || '#ffd54f';
+    ctx.save();
+    // 投影
+    ctx.fillStyle = 'rgba(0,0,0,.3)';
+    ctx.beginPath(); ctx.arc(x, y + 1.5, r, 0, Math.PI * 2); ctx.fill();
+    // 立体币面
+    const g = ctx.createRadialGradient(x - r * .35, y - r * .4, r * .1, x, y, r);
+    g.addColorStop(0, shade(c, .45));
+    g.addColorStop(.65, c);
+    g.addColorStop(1, shade(c, -.25));
+    ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(90,60,10,.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, r - .5, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.32)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, r * .72, 0, Math.PI * 2); ctx.stroke();
     if (glyph) {
-      ctx.fillStyle = 'rgba(0,0,0,.55)';
-      ctx.font = ui.font(Math.round(r * 1.1), 'bold');
+      ctx.font = ui.font(Math.round(r * 1.05), 'bold');
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(glyph, x, y + 1);
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillText(glyph, x, y + 1.5);
+      ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fillText(glyph, x, y + .5);
     }
+    // 高光点
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.beginPath(); ctx.ellipse(x - r * .38, y - r * .45, r * .18, r * .1, -.7, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   };
 
   /* ---------------- Toast 全局提示 ---------------- */
@@ -286,15 +420,25 @@
     if (!toasts.length) return;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     toasts.forEach((t, i) => {
-      const a = Math.min(1, t.t / .25, (t.dur - t.t) / .35);
-      const y = H * 0.32 + i * 46;
+      const ain = Math.min(1, t.t / .22);
+      const a = Math.min(1, ain, (t.dur - t.t) / .35);
+      const ease = 1 - Math.pow(1 - ain, 3);       // 上滑缓动
+      const y = H * 0.30 + i * 48 + (1 - ease) * 12;
       ctx.font = ui.font(16, 'bold');
-      const w = Math.min(W * 0.8, ctx.measureText(t.msg).width + 44);
+      const w = Math.min(W * 0.8, ctx.measureText(t.msg).width + 60);
       ctx.globalAlpha = a;
-      ctx.fillStyle = 'rgba(10,14,30,.9)';
-      M.roundRect(ctx, (W - w) / 2, y - 20, w, 40, 20); ctx.fill();
+      const x = (W - w) / 2;
+      const g = ctx.createLinearGradient(0, y - 21, 0, y + 21);
+      g.addColorStop(0, 'rgba(38,49,94,.96)');
+      g.addColorStop(1, 'rgba(13,18,38,.97)');
+      ctx.fillStyle = g;
+      M.roundRect(ctx, x, y - 21, w, 42, 21); ctx.fill();
+      ctx.strokeStyle = 'rgba(158,178,255,.28)'; ctx.lineWidth = 1;
+      M.roundRect(ctx, x + .5, y - 20.5, w - 1, 41, 20.5); ctx.stroke();
+      ctx.fillStyle = T.gold;
+      ctx.beginPath(); ctx.arc(x + 20, y, 3.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff';
-      ctx.fillText(t.msg, W / 2, y);
+      ctx.fillText(t.msg, W / 2 + 10, y);
       ctx.globalAlpha = 1;
     });
   };
@@ -305,26 +449,38 @@
     const W = () => KB.Main.viewW, H = () => KB.Main.viewH;
     const btnYes = new Button({ label: opts.yes || '确定', bg: '#2e7d32', fontSize: 16 });
     const btnNo = opts.noText === null ? null : new Button({ label: opts.no || '取消', bg: '#546e7a', fontSize: 16 });
+    const born = KB.Main ? KB.Main.time : 0;
     return {
       opaque: false,
       update() {},
       draw(ctx) {
-        const w = Math.min(420, W() * 0.86), h = 190;
+        const w = Math.min(460, W() * 0.86), h = 200;
         const x = (W() - w) / 2, y = (H() - h) / 2;
-        ctx.fillStyle = 'rgba(0,0,0,.55)';
+        // 遮罩 + 弹入
+        const t = (KB.Main.time - born) || 0;
+        const k = Math.min(1, t / .18);
+        ctx.save();
+        ctx.fillStyle = 'rgba(4,7,18,.6)';
         ctx.fillRect(0, 0, W(), H());
-        ctx.fillStyle = 'rgba(18,24,48,.97)';
-        M.roundRect(ctx, x, y, w, h, 18); ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,.15)'; ctx.lineWidth = 1.5;
-        M.roundRect(ctx, x + 1, y + 1, w - 2, h - 2, 17); ctx.stroke();
+        ctx.translate(0, (1 - k) * 16);
+        // 玻璃面板
+        ui.glass(ctx, x, y, w, h, 20);
+        // 金色顶饰线
+        const gold = ctx.createLinearGradient(x, 0, x + w, 0);
+        gold.addColorStop(0, 'rgba(255,213,79,0)');
+        gold.addColorStop(.5, 'rgba(255,213,79,.9)');
+        gold.addColorStop(1, 'rgba(255,213,79,0)');
+        ctx.fillStyle = gold;
+        M.roundRect(ctx, x + 26, y + 13, w - 52, 2.5, 1.25); ctx.fill();
         ctx.font = ui.font(17, 'bold');
         ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        wrapText(ctx, opts.msg || '确认？', W() / 2, y + 52, w - 48, 24);
-        const bw = 120, bh = 44, by = y + h - 62;
-        if (btnNo) { btnNo.x = x + w / 2 - bw - 14; btnNo.y = by; btnNo.w = bw; btnNo.h = bh; }
-        btnYes.x = x + w / 2 + 14; btnYes.y = by; btnYes.w = bw; btnYes.h = bh;
+        wrapText(ctx, opts.msg || '确认？', W() / 2, y + 56, w - 48, 24);
+        const bw = 132, bh = 46, by = y + h - 66;
+        if (btnNo) { btnNo.x = x + w / 2 - bw - 12; btnNo.y = by; btnNo.w = bw; btnNo.h = bh; }
+        btnYes.x = x + w / 2 + 12; btnYes.y = by; btnYes.w = bw; btnYes.h = bh;
         if (btnNo) btnNo.draw(ctx);
         btnYes.draw(ctx);
+        ctx.restore();
       },
       onTouch(type, x, y) {
         if (type === 'down') {

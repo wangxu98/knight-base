@@ -690,7 +690,9 @@
         }
 
         // 抵达核心：停下持续攻击核心（自爆兵一次性爆炸）
-        if (e.x - e.r <= coreLine) {
+        // 注：e.x 被钳制为 coreLine+e.r 后，(e.x-e.r)<=coreLine 可能因浮点误差恒为 false，
+        // 因此一旦 atCore 置位就永久生效，避免敌人卡死在城门
+        if (e.atCore || e.x - e.r <= coreLine) {
           e.x = coreLine + e.r;
           e.atCore = true;
           if (e.kind === 'bomb') {
@@ -1154,101 +1156,160 @@
     B.drawHud = function (ctx, W, H, safe, time) {
       const L = B.layout;
       const y = safe.t + 4;
-      // 顶部底条
-      ctx.fillStyle = 'rgba(10,14,30,.78)';
-      M.roundRect(ctx, safe.l + 6, y, W - safe.l - safe.r - 12, 50, 12);
-      ctx.fill();
+      const U = KB.ui;
+      // 顶部玻璃条
+      U.glass(ctx, safe.l + 6, y, W - safe.l - safe.r - 12, 50, 14, { top: 'rgba(19,26,52,.82)', bottom: 'rgba(8,12,28,.78)' });
 
-      // 勇气币
-      KB.ui.drawCoin(ctx, safe.l + 34, y + 25, 15, '#ffd54f', '勇');
-      ctx.font = KB.ui.font(19, 'bold');
-      ctx.fillStyle = B.energy >= 50 ? '#fff' : '#ffab91';
+      // 勇气币（能量）
+      U.drawCoin(ctx, safe.l + 36, y + 25, 15, '#ffd54f', '勇');
+      ctx.font = U.font(20, 'bold');
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(Math.floor(B.energy), safe.l + 58, y + 25);
-      ctx.font = KB.ui.font(11);
-      ctx.fillStyle = 'rgba(255,255,255,.55)';
-      ctx.fillText('+' + B.energyRegen.toFixed(1) + '/秒', safe.l + 58 + ctx.measureText('9999').width, y + 25);
-
-      // 波次进度
-      const waveTotal = B.totalWaves;
-      const wx0 = W / 2 - (waveTotal * 14) / 2;
-      for (let i = 0; i < waveTotal; i++) {
-        ctx.beginPath();
-        ctx.arc(wx0 + i * 14 + 6, y + 18, 4.5, 0, Math.PI * 2);
-        if (i <= B.waveIdx) { ctx.fillStyle = i === B.waveIdx ? '#ffd54f' : '#69f0ae'; ctx.fill(); }
-        else { ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fill(); }
-      }
-      ctx.font = KB.ui.font(11);
-      ctx.fillStyle = 'rgba(255,255,255,.65)';
-      ctx.textAlign = 'center';
-      ctx.fillText('波次 ' + Math.max(0, B.waveIdx + 1) + '/' + waveTotal + '  敌人 ' + B.enemies.length, W / 2, y + 38);
-
-      // 核心血量
-      const cxRight = W - safe.r - 232;
-      ctx.font = KB.ui.font(11);
-      ctx.fillStyle = 'rgba(255,255,255,.65)';
-      ctx.textAlign = 'right';
-      ctx.fillText('核心', cxRight - 4, y + 25);
+      const energyTxt = String(Math.floor(B.energy));
       ctx.fillStyle = 'rgba(0,0,0,.5)';
-      M.roundRect(ctx, cxRight, y + 18, 70, 13, 6); ctx.fill();
-      const pct = M.clamp(B.coreHp / B.coreMaxHp, 0, 1);
-      ctx.fillStyle = pct > .5 ? '#66bb6a' : pct > .25 ? '#ffa726' : '#ef5350';
-      M.roundRect(ctx, cxRight, y + 18, Math.max(13, 70 * pct), 13, 6); ctx.fill();
+      ctx.fillText(energyTxt, safe.l + 59, y + 26.5);
+      ctx.fillStyle = B.energy >= 50 ? '#ffe9a8' : '#ffab91';
+      ctx.fillText(energyTxt, safe.l + 58, y + 25);
+      ctx.font = U.font(11);
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      ctx.fillText('+' + B.energyRegen.toFixed(1) + '/秒', safe.l + 62 + ctx.measureText('9999').width, y + 26);
 
-      // 按钮组：药水/加速/暂停（右对齐，不越界）
+      // 波次进度（菱形刻度）
+      const waveTotal = B.totalWaves;
+      const wx0 = W / 2 - (waveTotal * 15) / 2;
+      for (let i = 0; i < waveTotal; i++) {
+        const dx = wx0 + i * 15 + 6, dy = y + 17;
+        ctx.beginPath();
+        ctx.moveTo(dx, dy - 5); ctx.lineTo(dx + 5, dy); ctx.lineTo(dx, dy + 5); ctx.lineTo(dx - 5, dy);
+        ctx.closePath();
+        if (i === B.waveIdx) {
+          ctx.fillStyle = '#ffd54f'; ctx.fill();
+          ctx.strokeStyle = 'rgba(255,213,79,.4)'; ctx.lineWidth = 3; ctx.stroke();
+        } else if (i < B.waveIdx) { ctx.fillStyle = '#69f0ae'; ctx.fill(); }
+        else { ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fill(); }
+      }
+      ctx.font = U.font(11);
+      ctx.fillStyle = 'rgba(255,255,255,.62)';
+      ctx.textAlign = 'center';
+      ctx.fillText('波次 ' + Math.max(0, B.waveIdx + 1) + '/' + waveTotal + ' · 敌人 ' + B.enemies.length, W / 2, y + 38);
+
+      // 核心血量（渐变 + 描边）
+      const cxRight = W - safe.r - 236;
+      ctx.font = U.font(11, 'bold');
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.textAlign = 'right';
+      ctx.fillText('❤ 核心', cxRight - 6, y + 25);
+      const pct = M.clamp(B.coreHp / B.coreMaxHp, 0, 1);
+      M.roundRect(ctx, cxRight, y + 17, 74, 15, 7.5);
+      ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 1;
+      M.roundRect(ctx, cxRight + .5, y + 17.5, 73, 14, 7); ctx.stroke();
+      if (pct > 0) {
+        const cc = pct > .5 ? '#66bb6a' : pct > .25 ? '#ffa726' : '#ef5350';
+        const cg = ctx.createLinearGradient(cxRight, y, cxRight + 74, y);
+        cg.addColorStop(0, cc); cg.addColorStop(1, U.shade(cc, .3));
+        ctx.fillStyle = cg;
+        M.roundRect(ctx, cxRight, y + 17, Math.max(15, 74 * pct), 15, 7.5); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.25)';
+        M.roundRect(ctx, cxRight + 1.5, y + 18.5, Math.max(12, 74 * pct - 3), 4, 2); ctx.fill();
+      }
+
+      // 按钮组：药水/加速/暂停（圆形玻璃钮）
       B._btns = B._btns || {};
       const defs = [
-        { id: 'potion', x: W - safe.r - 160, icon: '🧪', sub: String(B.potions), color: B.potions > 0 ? '#6a3fb5' : '#455a64' },
-        { id: 'speed', x: W - safe.r - 108, icon: B.speed === 1 ? '▶' : '⏩', sub: '×' + B.speed, color: '#33691e' },
-        { id: 'pause', x: W - safe.r - 56, icon: '⏸', sub: '', color: '#37474f' },
+        { id: 'potion', x: W - safe.r - 158, icon: '🧪', sub: String(B.potions), color: B.potions > 0 ? '#6a3fb5' : '#3c4a58' },
+        { id: 'speed', x: W - safe.r - 106, icon: B.speed === 1 ? '▶' : '⏩', sub: '×' + B.speed, color: '#2f6d1e' },
+        { id: 'pause', x: W - safe.r - 54, icon: '⏸', sub: '', color: '#31435c' },
       ];
       for (const d of defs) {
-        ctx.fillStyle = B._pressBtn === d.id ? 'rgba(255,255,255,.25)' : d.color;
-        M.roundRect(ctx, d.x, y + 6, 46, 38, 10); ctx.fill();
-        ctx.font = '18px ' + KB.ui.FONT;
-        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(d.icon, d.x + 23, d.sub ? y + 20 : y + 25);
-        if (d.sub) {
-          ctx.font = KB.ui.font(10);
-          ctx.fillText(d.sub, d.x + 23, y + 35);
+        const bx = d.x, by = y + 6, bw2 = 46, bh2 = 38;
+        // 投影 + 渐变底 + 光泽
+        ctx.fillStyle = 'rgba(3,6,16,.45)';
+        M.roundRect(ctx, bx + 1, by + 3, bw2, bh2, 12); ctx.fill();
+        const bgr = ctx.createLinearGradient(0, by, 0, by + bh2);
+        bgr.addColorStop(0, U.shade(d.color, .25));
+        bgr.addColorStop(1, U.shade(d.color, -.15));
+        ctx.fillStyle = B._pressBtn === d.id ? 'rgba(255,255,255,.3)' : bgr;
+        M.roundRect(ctx, bx, by, bw2, bh2, 12); ctx.fill();
+        if (B._pressBtn !== d.id) {
+          ctx.fillStyle = 'rgba(255,255,255,.12)';
+          M.roundRect(ctx, bx + 2, by + 2, bw2 - 4, bh2 * .42, 10); ctx.fill();
         }
-        B._btns[d.id] = { x: d.x, y: y + 6, w: 46, h: 38 };
+        ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1;
+        M.roundRect(ctx, bx + .5, by + .5, bw2 - 1, bh2 - 1, 11.5); ctx.stroke();
+        ctx.font = '16px ' + U.FONT;
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(d.icon, bx + bw2 / 2, d.sub ? by + 15 : by + 19);
+        if (d.sub) {
+          ctx.font = U.font(10, 'bold');
+          ctx.fillStyle = 'rgba(255,255,255,.85)';
+          ctx.fillText(d.sub, bx + bw2 / 2, by + 30);
+        }
+        B._btns[d.id] = { x: bx, y: by, w: bw2, h: bh2 };
       }
 
-      // Boss 血条
+      // Boss 血条（带饰角与护盾层）
       const boss = B.enemies.find(e => e.boss && e.alive);
       if (boss) {
-        const bw = Math.min(420, W * 0.6);
-        const bx2 = (W - bw) / 2, by2 = safe.t + 62;
-        ctx.fillStyle = 'rgba(0,0,0,.6)';
-        M.roundRect(ctx, bx2, by2, bw, 22, 11); ctx.fill();
-        ctx.fillStyle = '#e53935';
-        M.roundRect(ctx, bx2, by2, Math.max(22, bw * M.clamp((boss.hp + boss.shield) / boss.maxHp, 0, 1)), 22, 11); ctx.fill();
+        const bw = Math.min(440, W * 0.6);
+        const bx2 = (W - bw) / 2, by2 = safe.t + 62, bh2 = 24;
+        ctx.fillStyle = 'rgba(4,7,18,.68)';
+        M.roundRect(ctx, bx2 - 3, by2 - 3, bw + 6, bh2 + 6, 14); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,120,120,.35)'; ctx.lineWidth = 1.5;
+        M.roundRect(ctx, bx2 - 3, by2 - 3, bw + 6, bh2 + 6, 14); ctx.stroke();
+        M.roundRect(ctx, bx2, by2, bw, bh2, 11);
+        ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill();
+        // 护盾层（下层）
         if (boss.shield > 0) {
-          ctx.fillStyle = 'rgba(130,177,255,.7)';
-          M.roundRect(ctx, bx2, by2, Math.max(22, bw * M.clamp(boss.hp / boss.maxHp, 0, 1)), 22, 11); ctx.fill();
+          M.roundRect(ctx, bx2, by2, Math.max(22, bw * M.clamp((boss.hp + boss.shield) / boss.maxHp, 0, 1)), bh2, 11);
+          ctx.fillStyle = 'rgba(130,177,255,.75)'; ctx.fill();
         }
-        ctx.font = KB.ui.font(13, 'bold');
-        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('👑 ' + boss.name, W / 2, by2 + 11);
+        // 血量层
+        const hpW = Math.max(22, bw * M.clamp(boss.hp / boss.maxHp, 0, 1));
+        const hg = ctx.createLinearGradient(bx2, by2, bx2, by2 + bh2);
+        hg.addColorStop(0, '#ff6b5e'); hg.addColorStop(1, '#b71c1c');
+        ctx.fillStyle = hg;
+        M.roundRect(ctx, bx2, by2, hpW, bh2, 11); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.22)';
+        M.roundRect(ctx, bx2 + 2, by2 + 2, Math.max(10, hpW - 4), 6, 3); ctx.fill();
+        // 名称
+        ctx.font = U.font(13, 'bold');
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 3;
+        ctx.strokeText('👑 ' + boss.name, W / 2, by2 + bh2 / 2 + 1);
+        ctx.fillStyle = '#ffe0e0';
+        ctx.fillText('👑 ' + boss.name, W / 2, by2 + bh2 / 2 + 1);
       }
     };
 
     /* ================= 卡槽 ================= */
     B.drawTray = function (ctx, W, H, safe, time) {
-      const L = B.layout;
+      const L = B.layout, U = KB.ui;
       const y = L.trayY;
-      // 底条
-      ctx.fillStyle = 'rgba(10,14,30,.82)';
-      ctx.fillRect(0, y, W, L.trayH + safe.b);
-      // 关卡信息
-      ctx.font = KB.ui.font(11);
-      ctx.fillStyle = 'rgba(255,255,255,.55)';
+      const th = L.trayH + safe.b;
+      // 玻璃底坞：渐变底 + 顶部金线 + 柔光
+      const g = ctx.createLinearGradient(0, y, 0, y + th);
+      g.addColorStop(0, 'rgba(18,24,48,.94)');
+      g.addColorStop(1, 'rgba(7,10,22,.97)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, y, W, th);
+      const gl = ctx.createLinearGradient(0, y, 0, y + 26);
+      gl.addColorStop(0, 'rgba(255,213,79,.16)');
+      gl.addColorStop(1, 'rgba(255,213,79,0)');
+      ctx.fillStyle = gl;
+      ctx.fillRect(0, y, W, 26);
+      ctx.fillStyle = 'rgba(255,213,79,.5)';
+      ctx.fillRect(0, y, W, 1.5);
+      ctx.fillStyle = 'rgba(150,172,255,.1)';
+      ctx.fillRect(0, y + 1.5, W, 1);
+      // 关卡信息（左）+ 计时（右）
+      ctx.font = KB.ui.font(11, 'bold');
+      ctx.fillStyle = 'rgba(210,222,255,.72)';
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      const lvName = B.level.world.name + ' ' + (B.levelIdx0 + 1) + (B.level.isBoss ? ' · Boss' : '');
-      ctx.fillText(lvName, safe.l + 10, y + 14);
+      const lvName = B.level.world.name + ' ' + (B.levelIdx0 + 1) + (B.level.isBoss ? ' · BOSS' : '');
+      ctx.fillText(lvName, safe.l + 12, y + 15);
       ctx.textAlign = 'right';
-      ctx.fillText('⏱ ' + M.fmtTime(B.time), W - safe.r - 10, y + 14);
+      ctx.fillStyle = B.time > 180 ? '#ffab91' : 'rgba(210,222,255,.72)';
+      ctx.fillText('⏱ ' + M.fmtTime(B.time), W - safe.r - 12, y + 15);
 
       const n = B.cards.length;
       if (!n) {
@@ -1270,12 +1331,33 @@
         B._cardRects[i] = { x, y: cy, w: cw, h: ch };
         const affordable = B.energy >= card.cost && card.cd <= 0;
         const dragging = B.drag && B.drag.type === 'card' && B.drag.cardIdx === i;
+        const rc = CFG.RARITY_COLOR[card.owned.rarity] || '#b8c4d8';
         ctx.save();
-        if (!affordable) ctx.globalAlpha = 0.45;
+        if (!affordable) ctx.globalAlpha = 0.5;
         if (dragging) ctx.globalAlpha = 0.3;
+        // 投影
+        ctx.fillStyle = 'rgba(0,0,0,.45)';
+        M.roundRect(ctx, x + 1.5, cy + 3, cw, ch, 10);
+        ctx.fill();
         // 卡面
         const face = KB.art.cardFace(card.def.id, card.owned.rarity, Math.round(cw), Math.round(ch));
         ctx.drawImage(face, x, cy, cw, ch);
+        // 顶部光泽（裁剪到卡内）
+        ctx.save();
+        M.roundRect(ctx, x, cy, cw, ch, 10);
+        ctx.clip();
+        const gloss = ctx.createLinearGradient(0, cy, 0, cy + ch * 0.55);
+        gloss.addColorStop(0, 'rgba(255,255,255,.13)');
+        gloss.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = gloss;
+        ctx.fillRect(x, cy, cw, ch * 0.55);
+        ctx.restore();
+        // 稀有度描边：可用时呼吸微光
+        const edgeA = affordable ? 0.55 + 0.3 * Math.sin(time * 3 + i * 1.7) : 0.3;
+        ctx.strokeStyle = rc; ctx.lineWidth = 1.5; ctx.globalAlpha *= edgeA + 0.2;
+        M.roundRect(ctx, x + .75, cy + .75, cw - 1.5, ch - 1.5, 9);
+        ctx.stroke();
+        ctx.globalAlpha = dragging ? 0.3 : (!affordable ? 0.5 : 1);
         // 费用角标
         KB.ui.drawCoin(ctx, x + 13, cy + ch - 12, 11, '#ffd54f', '');
         ctx.font = KB.ui.font(11, 'bold');
@@ -1284,15 +1366,22 @@
         // 等级角标（局内合并等级显示在场上单位，卡上显示骑士等级）
         if (card.owned.level > 1) {
           ctx.font = KB.ui.font(9, 'bold');
+          ctx.fillStyle = 'rgba(0,0,0,.55)';
+          ctx.fillText('Lv' + card.owned.level, x + cw - 15, cy + 10);
           ctx.fillStyle = '#fff';
           ctx.fillText('Lv' + card.owned.level, x + cw - 16, cy + 9);
         }
-        // 冷却遮罩
+        // 冷却：暗幕自上而下消退 + 扫光线 + 秒数
         if (card.cd > 0) {
           const pct = card.cd / card.cdMax;
-          ctx.fillStyle = 'rgba(0,0,0,.6)';
-          M.roundRect(ctx, x + 1, cy + 1, cw - 2, (ch - 2) * pct, 8);
+          const chh = (ch - 2) * pct;
+          ctx.fillStyle = 'rgba(5,8,18,.74)';
+          M.roundRect(ctx, x + 1, cy + 1, cw - 2, chh, 8);
           ctx.fill();
+          if (chh > 4) {
+            ctx.fillStyle = 'rgba(150,180,255,.55)';
+            ctx.fillRect(x + 3, cy + chh - 1.5, cw - 6, 1.5);
+          }
           ctx.font = KB.ui.font(14, 'bold');
           ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
           ctx.fillText(Math.ceil(card.cd) + 's', x + cw / 2, cy + ch / 2);
@@ -1358,25 +1447,53 @@
 
     /* ================= 暂停菜单 ================= */
     B.drawPauseMenu = function (ctx, W, H) {
-      ctx.fillStyle = 'rgba(0,0,0,.6)';
+      const U = KB.ui;
+      ctx.fillStyle = 'rgba(2,4,10,.62)';
       ctx.fillRect(0, 0, W, H);
-      const w = Math.min(320, W * 0.8), h = 250;
+      const w = Math.min(340, W * 0.86), h = 264;
       const x = (W - w) / 2, y = (H - h) / 2;
-      ctx.fillStyle = 'rgba(18,24,48,.97)';
-      M.roundRect(ctx, x, y, w, h, 18); ctx.fill();
-      ctx.font = KB.ui.font(20, 'bold');
+      U.glass(ctx, x, y, w, h, 20, { edge: 'rgba(150,172,255,.32)' });
+      // 金色顶部饰线 + 标题
+      const gold = ctx.createLinearGradient(x, 0, x + w, 0);
+      gold.addColorStop(0, 'rgba(255,213,79,0)');
+      gold.addColorStop(0.5, 'rgba(255,213,79,.9)');
+      gold.addColorStop(1, 'rgba(255,213,79,0)');
+      ctx.fillStyle = gold;
+      ctx.fillRect(x + 24, y + 54, w - 48, 2);
+      ctx.font = KB.ui.font(21, 'bold');
       ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('游戏暂停', W / 2, y + 36);
+      ctx.fillText('游戏暂停', W / 2, y + 32);
+      ctx.font = KB.ui.font(9, 'bold');
+      ctx.fillStyle = 'rgba(255,213,79,.75)';
+      ctx.fillText('P A U S E D', W / 2, y + 50);
       const items = [['继续游戏', '#2e7d32'], ['重新开始', '#ef6c00'], ['退出关卡', '#c62828']];
       B._pauseRects = [];
       items.forEach((it, i) => {
-        const by = y + 70 + i * 56;
-        ctx.fillStyle = it[1];
-        M.roundRect(ctx, x + 40, by, w - 80, 46, 12); ctx.fill();
+        const by = y + 72 + i * 58;
+        const bx = x + 36, bw = w - 72, bh = 46;
+        // 投影 + 渐变按钮 + 顶部光泽 + 描边
+        ctx.fillStyle = 'rgba(0,0,0,.4)';
+        M.roundRect(ctx, bx + 1.5, by + 3, bw, bh, 12);
+        ctx.fill();
+        const bg = ctx.createLinearGradient(0, by, 0, by + bh);
+        bg.addColorStop(0, U.shade(it[1], 0.24));
+        bg.addColorStop(1, U.shade(it[1], -0.18));
+        ctx.fillStyle = bg;
+        M.roundRect(ctx, bx, by, bw, bh, 12);
+        ctx.fill();
+        const hg = ctx.createLinearGradient(0, by, 0, by + bh * 0.45);
+        hg.addColorStop(0, 'rgba(255,255,255,.22)');
+        hg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = hg;
+        M.roundRect(ctx, bx + 1.5, by + 1.5, bw - 3, bh * 0.45, 10);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1;
+        M.roundRect(ctx, bx + .5, by + .5, bw - 1, bh - 1, 11.5);
+        ctx.stroke();
         ctx.font = KB.ui.font(16, 'bold');
         ctx.fillStyle = '#fff';
-        ctx.fillText(it[0], W / 2, by + 23);
-        B._pauseRects.push({ i, x: x + 40, y: by, w: w - 80, h: 46 });
+        ctx.fillText(it[0], W / 2, by + bh / 2 + 1);
+        B._pauseRects.push({ i, x: bx, y: by, w: bw, h: bh });
       });
     };
 

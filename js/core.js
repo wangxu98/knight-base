@@ -5,6 +5,36 @@
 'use strict';
 window.KB = window.KB || {};
 
+/* ---------- 旧浏览器兼容：roundRect polyfill (Safari < 16) ---------- */
+(function () {
+  function rr(target, x, y, w, h, radii) {
+    if (typeof radii === 'number') radii = [radii, radii, radii, radii];
+    else if (!radii || !radii.length) radii = [0, 0, 0, 0];
+    else if (radii.length === 2) radii = [radii[0], radii[1], radii[0], radii[1]];
+    else if (radii.length === 3) radii = [radii[0], radii[1], radii[2], radii[1]];
+    var max = Math.min(Math.abs(w), Math.abs(h)) / 2;
+    var r = [];
+    for (var i = 0; i < 4; i++) r.push(Math.min(+radii[i] || 0, max));
+    target.moveTo(x + r[0], y);
+    target.lineTo(x + w - r[1], y);
+    target.arcTo(x + w, y, x + w, y + r[1], r[1]);
+    target.lineTo(x + w, y + h - r[2]);
+    target.arcTo(x + w, y + h, x + w - r[2], y + h, r[2]);
+    target.lineTo(x + r[3], y + h);
+    target.arcTo(x, y + h, x, y + h - r[3], r[3]);
+    target.lineTo(x, y + r[0]);
+    target.arcTo(x, y, x + r[0], y, r[0]);
+    target.closePath();
+  }
+  var C = window.CanvasRenderingContext2D;
+  if (C && !C.prototype.roundRect) {
+    C.prototype.roundRect = function (x, y, w, h, r) { rr(this, x, y, w, h, r); return this; };
+  }
+  if (window.Path2D && !window.Path2D.prototype.roundRect) {
+    window.Path2D.prototype.roundRect = function (x, y, w, h, r) { rr(this, x, y, w, h, r); return this; };
+  }
+})();
+
 /* ---------- 全局调参配置（平衡迭代只改这里） ---------- */
 KB.CONFIG = {
   GRID_ROWS: 5,          // 战场行数

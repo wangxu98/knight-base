@@ -385,31 +385,113 @@
   };
 
   /* ============ 基地核心（城堡） ============ */
-  art.drawCore = function (ctx, x, y, w, h, hpPct, time) {
+  art.drawCore = function (ctx, x, y, w, h, hpPct, time, showBar) {
+    if (showBar === undefined) showBar = true;
     const flash = hpPct < 0.3 && Math.sin(time * 8) > 0;
     ctx.save();
     ctx.translate(x, y);
-    // 主体
-    ctx.fillStyle = flash ? '#8b3a3a' : '#5c6bc0';
-    M.roundRect(ctx, -w * .38, -h * .3, w * .76, h * .62, 6); ctx.fill();
+    const mainLit = flash ? '#a05252' : '#7987c9';
+    const mainDark = flash ? '#6d3030' : '#48558f';
+    // ---- 侧塔（先画，被主楼遮住一半） ----
+    for (const s of [-1, 1]) {
+      const tx = s * w * .40;
+      const tg = ctx.createLinearGradient(tx - w * .1, 0, tx + w * .1, 0);
+      tg.addColorStop(0, mainDark);
+      tg.addColorStop(1, mainLit);
+      ctx.fillStyle = tg;
+      M.roundRect(ctx, tx - w * .1, -h * .36, w * .2, h * .68, 4); ctx.fill();
+      // 塔顶锥
+      ctx.fillStyle = flash ? '#7d3a3a' : '#3d4a85';
+      ctx.beginPath();
+      ctx.moveTo(tx - w * .13, -h * .36);
+      ctx.lineTo(tx, -h * .58);
+      ctx.lineTo(tx + w * .13, -h * .36);
+      ctx.closePath(); ctx.fill();
+      // 塔旗
+      ctx.strokeStyle = '#b0bec5'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(tx, -h * .58); ctx.lineTo(tx, -h * .68); ctx.stroke();
+      const fv = Math.sin(time * 2.4 + s) * h * .015;
+      ctx.fillStyle = '#ef5350';
+      ctx.beginPath();
+      ctx.moveTo(tx, -h * .68);
+      ctx.lineTo(tx + s * w * .13, -h * .645 + fv);
+      ctx.lineTo(tx, -h * .605);
+      ctx.closePath(); ctx.fill();
+      // 塔窗
+      ctx.fillStyle = 'rgba(255,200,110,.9)';
+      ctx.beginPath(); ctx.arc(tx, -h * .22, w * .022, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,200,110,.5)';
+      ctx.beginPath(); ctx.arc(tx, -h * .02, w * .022, 0, Math.PI * 2); ctx.fill();
+    }
+    // ---- 主楼 ----
+    const bg = ctx.createLinearGradient(-w * .38, 0, w * .38, 0);
+    bg.addColorStop(0, mainDark);
+    bg.addColorStop(.5, mainLit);
+    bg.addColorStop(1, mainDark);
+    ctx.fillStyle = bg;
+    M.roundRect(ctx, -w * .34, -h * .3, w * .68, h * .62, 5); ctx.fill();
+    // 砖缝质感
+    ctx.strokeStyle = 'rgba(20,26,60,.35)'; ctx.lineWidth = 1;
+    for (let ry = -h * .22; ry < h * .3; ry += h * .11) {
+      ctx.beginPath(); ctx.moveTo(-w * .32, ry); ctx.lineTo(w * .32, ry); ctx.stroke();
+    }
     // 城垛
-    ctx.fillStyle = flash ? '#a04a4a' : '#7986cb';
-    for (let i = 0; i < 4; i++) ctx.fillRect(-w * .38 + i * w * .2, -h * .42, w * .12, h * .14);
-    // 大门
-    ctx.fillStyle = '#3e2723';
-    M.roundRect(ctx, -w * .1, -h * .05, w * .2, h * .37, 5); ctx.fill();
-    // 旗帜
+    ctx.fillStyle = flash ? '#b25b5b' : '#8b97d6';
+    for (let i = 0; i < 4; i++) ctx.fillRect(-w * .32 + i * w * .17, -h * .38, w * .1, h * .1);
+    // 中央高塔
+    ctx.fillStyle = flash ? '#8b4a4a' : '#5b6ab2';
+    M.roundRect(ctx, -w * .09, -h * .52, w * .18, h * .26, 3); ctx.fill();
+    ctx.fillStyle = flash ? '#7d3a3a' : '#3d4a85';
+    ctx.beginPath();
+    ctx.moveTo(-w * .12, -h * .52); ctx.lineTo(0, -h * .72); ctx.lineTo(w * .12, -h * .52);
+    ctx.closePath(); ctx.fill();
+    // 主旗（更大）
     ctx.strokeStyle = '#b0bec5'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, -h * .42); ctx.lineTo(0, -h * .62); ctx.stroke();
-    ctx.fillStyle = '#ef5350';
-    ctx.beginPath(); ctx.moveTo(0, -h * .62); ctx.lineTo(w * .22, -h * .55); ctx.lineTo(0, -h * .48); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, -h * .72); ctx.lineTo(0, -h * .86); ctx.stroke();
+    ctx.fillStyle = '#d23c3c';
+    const fv2 = Math.sin(time * 2.8) * h * .018;
+    ctx.beginPath();
+    ctx.moveTo(0, -h * .86);
+    ctx.quadraticCurveTo(w * .14, -h * .825 + fv2, w * .26, -h * .80 + fv2);
+    ctx.lineTo(w * .26, -h * .72 + fv2);
+    ctx.quadraticCurveTo(w * .14, -h * .715 + fv2, 0, -h * .70);
+    ctx.closePath(); ctx.fill();
+    // 拱门
+    ctx.fillStyle = '#241611';
+    ctx.beginPath();
+    ctx.moveTo(-w * .085, h * .32);
+    ctx.lineTo(-w * .085, h * .06);
+    ctx.arc(0, h * .06, w * .085, Math.PI, 0);
+    ctx.lineTo(w * .085, h * .32);
+    ctx.closePath(); ctx.fill();
+    // 门栅
+    ctx.strokeStyle = 'rgba(150,120,80,.55)'; ctx.lineWidth = 1.5;
+    for (let gx = -w * .06; gx <= w * .06; gx += w * .04) {
+      ctx.beginPath(); ctx.moveTo(gx, h * .3); ctx.lineTo(gx, h * .02); ctx.stroke();
+    }
+    // 主楼窗光（呼吸）
+    const win = .55 + .45 * Math.sin(time * 1.8);
+    ctx.fillStyle = 'rgba(255,196,96,' + (.55 + win * .35).toFixed(2) + ')';
+    for (const wx of [-w * .17, w * .17]) {
+      M.roundRect(ctx, wx - w * .026, -h * .18, w * .052, h * .09, 2.5); ctx.fill();
+    }
     ctx.restore();
-    // 血量环
-    const cx = x, cy = y + h * .45;
-    ctx.fillStyle = 'rgba(0,0,0,.5)';
-    M.roundRect(ctx, cx - w * .42, cy, w * .84, 8, 4); ctx.fill();
-    ctx.fillStyle = hpPct > .5 ? '#66bb6a' : hpPct > .25 ? '#ffa726' : '#ef5350';
-    M.roundRect(ctx, cx - w * .42, cy, w * .84 * M.clamp(hpPct, 0, 1), 8, 4); ctx.fill();
+    // ---- 血量条 ----
+    if (showBar) {
+      const cx = x, cy = y + h * .45;
+      ctx.fillStyle = 'rgba(0,0,0,.5)';
+      M.roundRect(ctx, cx - w * .42, cy, w * .84, 8, 4); ctx.fill();
+      const pct = M.clamp(hpPct, 0, 1);
+      if (pct > 0) {
+        const g = ctx.createLinearGradient(cx - w * .42, 0, cx - w * .42 + w * .84 * pct, 0);
+        const c = pct > .5 ? '#66bb6a' : pct > .25 ? '#ffa726' : '#ef5350';
+        g.addColorStop(0, c); g.addColorStop(1, mix(c, '#ffffff', .25));
+        ctx.fillStyle = g;
+        M.roundRect(ctx, cx - w * .42, cy, Math.max(8, w * .84 * pct), 8, 4); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1;
+      M.roundRect(ctx, cx - w * .42 + .5, cy + .5, w * .84 - 1, 7, 3.5); ctx.stroke();
+    }
   };
 
   /* ============ 项目精灵 ============ */
