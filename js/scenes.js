@@ -77,19 +77,21 @@
       ctx.arc(s.x * w, s.y * h, s.r, 0, Math.PI * 2);
       ctx.fill();
     }
-    // 月亮（右上，带光晕）
-    const mx = w * .84, my = h * .13, mr = Math.min(34, w * .03);
-    const halo = ctx.createRadialGradient(mx, my, mr * .4, mx, my, mr * 3.4);
-    halo.addColorStop(0, 'rgba(226,234,255,.24)');
-    halo.addColorStop(1, 'rgba(226,234,255,0)');
-    ctx.fillStyle = halo;
-    ctx.fillRect(mx - mr * 3.4, my - mr * 3.4, mr * 6.8, mr * 6.8);
-    ctx.fillStyle = '#dfe7fb';
-    ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(160,175,210,.5)';
-    ctx.beginPath(); ctx.arc(mx - mr * .3, my - mr * .18, mr * .16, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(mx + mr * .26, my + mr * .3, mr * .11, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(mx + mr * .1, my - mr * .42, mr * .08, 0, Math.PI * 2); ctx.fill();
+    // 月亮（右上，带光晕；主界面自绘大月亮，可传 {moon:false} 跳过）
+    if (o.moon !== false) {
+      const mx = w * .84, my = h * .13, mr = Math.min(34, w * .03);
+      const halo = ctx.createRadialGradient(mx, my, mr * .4, mx, my, mr * 3.4);
+      halo.addColorStop(0, 'rgba(226,234,255,.24)');
+      halo.addColorStop(1, 'rgba(226,234,255,0)');
+      ctx.fillStyle = halo;
+      ctx.fillRect(mx - mr * 3.4, my - mr * 3.4, mr * 6.8, mr * 6.8);
+      ctx.fillStyle = '#dfe7fb';
+      ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(160,175,210,.5)';
+      ctx.beginPath(); ctx.arc(mx - mr * .3, my - mr * .18, mr * .16, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + mr * .26, my + mr * .3, mr * .11, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + mr * .1, my - mr * .42, mr * .08, 0, Math.PI * 2); ctx.fill();
+    }
     // 流云（两层视差）
     if (o.clouds !== false) {
       const drift = KB.Main.time;
@@ -269,10 +271,20 @@
         });
       }
     }
+    // 星空 / 视差云 / 树线 / 草丛（确定性分布，绘制时只做轻量动画）
+    const stars = [], clouds = [], trees = [], grass = [];
+    {
+      const rng = KB.RNG(77041);
+      for (let i = 0; i < 90; i++) stars.push({ x: rng() * 1280, y: rng() * 400, r: .5 + rng() * 1.1, ph: rng() * Math.PI * 2 });
+      for (let i = 0; i < 6; i++) clouds.push({ x: rng() * 1440, y: 46 + rng() * 170, s: 38 + rng() * 58, sp: 4 + rng() * 8, far: rng() > .5 });
+      for (let i = 0; i < 18; i++) trees.push({ x: rng() * 1300 - 10, hh: 26 + rng() * 36, ph: rng() * 6 });
+      for (let i = 0; i < 56; i++) grass.push({ x: rng() * 1280, y: 630 + rng() * 156, s: .7 + rng() * .9, ph: rng() * Math.PI * 2 });
+    }
 
     function build() {
       root.removeAll();
       const w = W(), h = H(), s = SAFE();
+      root.x = 0; root.y = 0; root.w = w; root.h = h;   // 命中区必须覆盖全屏，否则按钮无法点击
       // 顶栏：左币右星 状态胶囊
       root.add((function () {
         const p = new ui.Panel({ bg: 'transparent', radius: 0, borderColor: null });
@@ -353,18 +365,77 @@
     }
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
         const w = W(), h = H(), s = SAFE();
         const time = KB.Main.time;
-        drawSkyBg(ctx, '#1d2c58', '#0a1124');
+        drawSkyBg(ctx, '#1d2c58', '#0a1124', { moon: false });   // 主界面自绘大月亮
 
-        /* ---- 远山两层剪影 ---- */
+        /* ---- 星空（闪烁） ---- */
+        for (const st of stars) {
+          const tw = .25 + .55 * Math.abs(Math.sin(time * 1.1 + st.ph));
+          ctx.fillStyle = 'rgba(214,226,255,' + tw.toFixed(2) + ')';
+          ctx.beginPath(); ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2); ctx.fill();
+        }
+        /* ---- 月亮（光晕 + 环形山 + 暗缘） ---- */
+        const mx = 1082, my = 118, mr = 40;
+        const mglow = ctx.createRadialGradient(mx, my, mr * .5, mx, my, mr * 3.2);
+        mglow.addColorStop(0, 'rgba(235,240,255,.22)');
+        mglow.addColorStop(.5, 'rgba(200,215,255,.08)');
+        mglow.addColorStop(1, 'rgba(200,215,255,0)');
+        ctx.fillStyle = mglow;
+        ctx.fillRect(mx - mr * 3.2, my - mr * 3.2, mr * 6.4, mr * 6.4);
+        const mg2 = ctx.createRadialGradient(mx - mr * .35, my - mr * .4, mr * .1, mx, my, mr);
+        mg2.addColorStop(0, '#ffffff'); mg2.addColorStop(.55, '#e8edf8'); mg2.addColorStop(1, '#b9c4dd');
+        ctx.fillStyle = mg2;
+        ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(150,160,190,.35)';
+        ctx.beginPath(); ctx.arc(mx - mr * .3, my - mr * .12, mr * .16, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(mx + mr * .22, my + mr * .3, mr * .1, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(mx + mr * .05, my - mr * .4, mr * .07, 0, Math.PI * 2); ctx.fill();
+
+        /* ---- 远层云（慢速，淡） ---- */
+        const drawCloud = (cx0, cy0, cs, ca) => {
+          ctx.fillStyle = 'rgba(178,196,232,' + ca + ')';
+          ctx.beginPath();
+          ctx.arc(cx0, cy0, cs * .55, 0, Math.PI * 2);
+          ctx.arc(cx0 - cs * .55, cy0 + cs * .12, cs * .38, 0, Math.PI * 2);
+          ctx.arc(cx0 + cs * .58, cy0 + cs * .14, cs * .42, 0, Math.PI * 2);
+          ctx.arc(cx0 + cs * .1, cy0 - cs * .22, cs * .34, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(10,16,38,' + (ca * .5) + ')';
+          ctx.beginPath(); ctx.ellipse(cx0, cy0 + cs * .3, cs * .9, cs * .16, 0, 0, Math.PI); ctx.fill();
+        };
+        for (const c of clouds) if (c.far) drawCloud(((c.x + time * c.sp) % 1520) - 120, c.y, c.s, .16);
+
+        /* ---- 远山三层剪影 ---- */
+        ctx.fillStyle = '#182448';
+        drawRidge(ctx, w, 488, 130, 0.7);
         ctx.fillStyle = '#141f3e';
-        drawRidge(ctx, w, 508, 120, 0.9);
+        drawRidge(ctx, w, 512, 120, 0.9);
         ctx.fillStyle = '#0f1730';
         drawRidge(ctx, w, 538, 90, 1.6);
+
+        /* ---- 近层云（快速，稍亮） ---- */
+        for (const c of clouds) if (!c.far) drawCloud(((c.x + time * c.sp) % 1520) - 120, c.y, c.s, .22);
+
+        /* ---- 树线剪影（地平线前，随风微摆） ---- */
+        for (const t of trees) {
+          const sway = Math.sin(time * .9 + t.ph) * 1.2;
+          const bx = t.x, base = 552, th = t.hh;
+          ctx.fillStyle = 'rgba(9,17,14,.9)';
+          ctx.fillRect(bx - 1.2, base - th * .3, 2.4, th * .3 + 4);
+          for (let ly = 0; ly < 3; ly++) {
+            const lw2 = th * (.42 - ly * .1), ly2 = base - th * .28 - ly * th * .26;
+            ctx.beginPath();
+            ctx.moveTo(bx - lw2, ly2);
+            ctx.lineTo(bx + sway * (ly + 1) * .4, ly2 - th * .38);
+            ctx.lineTo(bx + lw2, ly2);
+            ctx.closePath(); ctx.fill();
+          }
+        }
 
         /* ---- 标题徽章区 ---- */
         const tcx = w / 2;
@@ -432,18 +503,41 @@
         ctx.quadraticCurveTo(w / 2 - 300, hillY - 66, w / 2, hillY - 60);
         ctx.quadraticCurveTo(w / 2 + 300, hillY - 66, w / 2 + 430, hillY + 120);
         ctx.closePath(); ctx.fill();
-        // 石径
-        ctx.strokeStyle = 'rgba(196,181,148,.22)'; ctx.lineWidth = 26; ctx.lineCap = 'round';
+        // 石径（石板逐块）
+        ctx.strokeStyle = 'rgba(196,181,148,.16)'; ctx.lineWidth = 26; ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(w / 2, 588);
         ctx.quadraticCurveTo(w / 2 + 26, 664, w / 2 + 10, 760);
         ctx.stroke();
+        ctx.fillStyle = 'rgba(206,192,160,.26)';
+        for (let i = 0; i < 7; i++) {
+          const tt = .12 + i * .13;
+          const sx2 = w / 2 + 52 * tt * (1 - tt) + 10 * tt * tt;   // 贝塞尔 x(t)
+          const sy2 = 588 + 152 * tt + 20 * tt * tt;                // 贝塞尔 y(t)
+          const sw3 = 15 - i * 1.1;
+          ctx.beginPath(); ctx.ellipse(sx2, sy2, sw3, sw3 * .6, tt * .5, 0, Math.PI * 2); ctx.fill();
+        }
         // 城堡（主界面不显示血条）
         KB.art.drawCore(ctx, w / 2, 452, 190, 250, 1, time, false);
         // 两翼旗帜
         drawBanner(ctx, w / 2 - 205, hillY - 48, 1, time);
         drawBanner(ctx, w / 2 + 205, hillY - 40, -1, time);
-        // 萤火虫
+
+        /* ---- 前景草丛（随风摆动） ---- */
+        ctx.lineCap = 'round';
+        for (const g of grass) {
+          const sway2 = Math.sin(time * 1.6 + g.ph) * 2.2 * g.s;
+          ctx.strokeStyle = 'rgba(52,96,66,.8)';
+          ctx.lineWidth = 1.4 * g.s;
+          for (let k = -1; k <= 1; k++) {
+            ctx.beginPath();
+            ctx.moveTo(g.x + k * 2.6 * g.s, g.y);
+            ctx.quadraticCurveTo(g.x + k * 3 * g.s, g.y - 5 * g.s, g.x + k * 4 * g.s + sway2, g.y - 9 * g.s);
+            ctx.stroke();
+          }
+        }
+
+        /* ---- 萤火虫 ---- */
         ctx.save();
         for (let i = 0; i < fireflies.length; i++) {
           const f = fireflies[i];
@@ -490,6 +584,7 @@
     build();
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
@@ -500,7 +595,8 @@
         ctx.fillStyle = 'rgba(10,14,30,.85)';
         ctx.fillRect(0, s.t, w, 52);
         // 返回
-        drawBackBtn(ctx, s.l + 8, s.t + 6, () => SM.pop());
+        self._backRect = { x: s.l + 8, y: s.t + 6, w: 76, h: 40 };
+        drawBackBtn(ctx, s.l + 8, s.t + 6);
         ctx.font = ui.font(19, 'bold');
         ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('世界征途', w / 2, s.t + 26);
@@ -576,13 +672,15 @@
       },
       onTouch(type, x, y) {
         if (type !== 'up') return true;
-        for (const c of (this._chips || [])) {
+        const inR = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+        if (inR(self._backRect)) { SM.pop(); return true; }
+        for (const c of (self._chips || [])) {
           if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) {
             if (KB.Player.isWorldUnlocked(c.i)) { curWorld = c.i; } else ui.toast('先通关前面的世界');
             return true;
           }
         }
-        for (const n of (this._nodeRects || [])) {
+        for (const n of (self._nodeRects || [])) {
           if (x >= n.x && x <= n.x + n.w && y >= n.y && y <= n.y + n.h) {
             if (levelUnlocked(curWorld, n.i)) {
               SM.push(new Boot.LoadoutScene(curWorld, n.i));
@@ -634,6 +732,7 @@
     build();
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
@@ -797,6 +896,7 @@
     build();
 
     return {
+      _self: self,
       opaque: false,
       buildUI: build,
       update() {},
@@ -933,6 +1033,7 @@
     build();
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
@@ -1113,6 +1214,7 @@
     }
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
@@ -1276,6 +1378,7 @@
     build();
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
@@ -1386,6 +1489,7 @@
     build();
 
     return {
+      _self: self,
       buildUI: build,
       update() {},
       draw(ctx) {
@@ -1497,6 +1601,7 @@
     build();
 
     return {
+      _self: self,
       opaque: false,
       buildUI: build,
       update() {},
@@ -1607,6 +1712,7 @@
     }
     build();
     return {
+      _self: self,
       opaque: false,
       buildUI: build,
       update() {},

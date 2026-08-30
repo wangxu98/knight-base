@@ -121,25 +121,37 @@
       const r = this.radius;
       const x = this.x, y = this.y, w = this.w, h = this.h;
       const base = this.enabled ? (this.pressed ? shade(this.bg, -.22) : this.bg) : '#3a4152';
+      const dyAll = (this.pressed && this.enabled) ? 2 : 0;
       ctx.save();
-      // 投影
+      // 投影（按下收拢）
       if (this.enabled) {
-        ctx.fillStyle = 'rgba(3,6,16,.5)';
-        M.roundRect(ctx, x + 1.5, y + 3.5, w, h, r); ctx.fill();
+        ctx.fillStyle = 'rgba(3,6,16,' + (this.pressed ? .3 : .5) + ')';
+        M.roundRect(ctx, x + 1.5, y + (this.pressed ? 2 : 3.5), w, h, r); ctx.fill();
       }
+      ctx.translate(0, dyAll);
       // 主体渐变
       const g = ctx.createLinearGradient(0, y, 0, y + h);
-      g.addColorStop(0, shade(base, .24));
+      g.addColorStop(0, shade(base, .26));
       g.addColorStop(.5, base);
-      g.addColorStop(1, shade(base, -.16));
+      g.addColorStop(1, shade(base, -.18));
       ctx.fillStyle = g;
       M.roundRect(ctx, x, y, w, h, r); ctx.fill();
-      // 顶部光泽
+      // 顶部光泽（上 42% 高光带）
       if (h > 12) {
-        ctx.fillStyle = 'rgba(255,255,255,.12)';
+        ctx.fillStyle = 'rgba(255,255,255,.13)';
         M.roundRect(ctx, x + 2, y + 2, w - 4, Math.max(4, h * .42), Math.max(0, r - 2)); ctx.fill();
       }
-      // 边框
+      // 底部内阴影（立体收口）
+      if (h > 20) {
+        const bs = ctx.createLinearGradient(0, y + h - h * .24, 0, y + h);
+        bs.addColorStop(0, 'rgba(0,0,0,0)'); bs.addColorStop(1, 'rgba(0,0,12,.22)');
+        ctx.fillStyle = bs;
+        M.roundRect(ctx, x + 1.5, y + h - h * .24, w - 3, h * .24, Math.max(0, r - 2)); ctx.fill();
+      }
+      // 底部光线（内侧亮线）
+      ctx.strokeStyle = 'rgba(255,255,255,.09)'; ctx.lineWidth = 1;
+      M.roundRect(ctx, x + 2.5, y + 1.5, w - 5, h - 3, Math.max(0, r - 2)); ctx.stroke();
+      // 外框
       ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1;
       M.roundRect(ctx, x + .5, y + .5, w - 1, h - 1, Math.max(0, r - 1)); ctx.stroke();
       if (this.borderColor) {
@@ -163,18 +175,29 @@
         ctx.fillStyle = color;
         ctx.fillText(txt, lx, ly);
       };
+      // 图标徽章托：金属环 + 玻璃底 + 高光
+      const medallion = (mx, my) => {
+        const rr2 = this.iconSize * .74;
+        const ig = ctx.createRadialGradient(mx - rr2 * .3, my - rr2 * .35, rr2 * .1, mx, my, rr2);
+        ig.addColorStop(0, 'rgba(255,255,255,.3)');
+        ig.addColorStop(.5, 'rgba(255,255,255,.12)');
+        ig.addColorStop(1, 'rgba(0,0,16,.18)');
+        ctx.fillStyle = ig;
+        ctx.beginPath(); ctx.arc(mx, my, rr2, 0, Math.PI * 2); ctx.fill();
+        const rg2 = ctx.createLinearGradient(mx, my - rr2, mx, my + rr2);
+        rg2.addColorStop(0, 'rgba(255,255,255,.75)'); rg2.addColorStop(.5, 'rgba(190,205,235,.35)'); rg2.addColorStop(1, 'rgba(255,255,255,.15)');
+        ctx.strokeStyle = rg2; ctx.lineWidth = Math.max(1.2, rr2 * .1);
+        ctx.beginPath(); ctx.arc(mx, my, rr2, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,16,.35)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(mx, my, rr2 + Math.max(1, rr2 * .05), 0, Math.PI * 2); ctx.stroke();
+      };
       if (this.icon && this.label) {
         ctx.font = ui.font(this.fontSize, 'bold');
         const lw = ctx.measureText(this.label).width;
         const iw = this.iconSize * 1.05;
         const total = iw + 10 + lw;
         const ix = cx - total / 2 + iw / 2;
-        if (h >= 44) {  // 图标底托
-          ctx.fillStyle = 'rgba(255,255,255,.16)';
-          ctx.beginPath(); ctx.arc(ix, cy, this.iconSize * .74, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.arc(ix, cy, this.iconSize * .74, 0, Math.PI * 2); ctx.stroke();
-        }
+        if (h >= 44) medallion(ix, cy);
         label(this.icon, this.iconSize + 'px ' + FONT, this.fg, ix, cy + 1);
         const lx = ix + iw / 2 + 10;
         if (this.sub && h >= 60) {  // 双行：标题 + 副标题
@@ -186,10 +209,7 @@
           label(this.label, ui.font(this.fontSize, 'bold'), this.fg, lx, cy);
         }
       } else if (this.icon) {
-        if (h >= 44) {
-          ctx.fillStyle = 'rgba(255,255,255,.16)';
-          ctx.beginPath(); ctx.arc(cx, cy, this.iconSize * .74, 0, Math.PI * 2); ctx.fill();
-        }
+        if (h >= 44) medallion(cx, cy);
         label(this.icon, this.iconSize + 'px ' + FONT, this.fg, cx, cy + 1);
       } else if (this.label) {
         if (this.sub) cy -= 9;
